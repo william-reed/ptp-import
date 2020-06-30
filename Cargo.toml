@@ -1,0 +1,10 @@
+[package]
+name = "ptp-import"
+version = "0.1.0"
+authors = ["William Reed <wreed58@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+libusb = "0.3"
+ptp = "0.5"
+chrono = "0.4"
