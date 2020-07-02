@@ -5,6 +5,6 @@ authors = ["William Reed <wreed58@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-libusb = "0.3"
-ptp = "0.5"
+libptp = "0.6"
 chrono = "0.4"
+rusb = "0.6"
