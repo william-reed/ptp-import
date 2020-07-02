@@ -62,14 +62,7 @@ fn main() {
                 // skip folders
                 if info.ObjectFormat == FOLDER_OBJECT_FORMAT { continue; }
 
-                let date =
-                    match NaiveDate::parse_from_str(info.CaptureDate.as_str(), "%Y%m%dT%H%M%S") {
-                        Ok(d) => d,
-                        Err(e) => {
-                            eprintln!("Could not parse date {}: {}", info.CaptureDate, e);
-                            continue;
-                        }
-                    };
+                let date = skip_fail!(NaiveDate::parse_from_str(info.CaptureDate.as_str(), "%Y%m%dT%H%M%S"), format!("Could not parse date {}", info.CaptureDate));
 
                 println!("{} ({:.2} MiB) from {}", info.Filename, (info.ObjectCompressedSize as f32) / 1024.0 / 1024.0, date.format("%d/%m/%Y").to_string());
 
@@ -109,12 +102,12 @@ fn save_file(filename: String, date: NaiveDate, image_size_bytes: u32, cam: &mut
 
     let mut file = File::create(file_and_path)?;
 
-    let mut total_transfered_bytes = 0;
+    let mut total_transferred_bytes = 0;
     let mut data: Vec<u8> = Vec::new();
-    while total_transfered_bytes < image_size_bytes {
-        let mut partial_data = cam.get_partialobject(handle, total_transfered_bytes, MAX_PARTIAL_TRANSFER_BYTES, None)?;
+    while total_transferred_bytes < image_size_bytes {
+        let mut partial_data = cam.get_partialobject(handle, total_transferred_bytes, MAX_PARTIAL_TRANSFER_BYTES, None)?;
         data.append(&mut partial_data);
-        total_transfered_bytes += MAX_PARTIAL_TRANSFER_BYTES
+        total_transferred_bytes += MAX_PARTIAL_TRANSFER_BYTES
     }
     file.write_all(data.as_slice())?;
     Ok(())
