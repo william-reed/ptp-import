@@ -7,13 +7,13 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::ops::Add;
 use std::path::Path;
-use std::time::Duration;
 
 use chrono::{Datelike, NaiveDate};
 use libptp::Camera;
 use rusb::UsbContext;
 
 const FOLDER_OBJECT_FORMAT: u16 = 0x3001;
+const MAX_PARTIAL_TRANSFER_BYTES: u32 = 15 * 1024 * 1024; // 15 MiB
 
 /// skip_fail!
 ///
@@ -62,12 +62,6 @@ fn main() {
                 // skip folders
                 if info.ObjectFormat == FOLDER_OBJECT_FORMAT { continue; }
 
-                let file_size_mebibytes = (info.ObjectCompressedSize as f32) / 1024.0 / 1024.0;
-                if file_size_mebibytes > 50.0 {
-                    println!("too big: {}", file_size_mebibytes);
-                    // continue
-                }
-
                 let date =
                     match NaiveDate::parse_from_str(info.CaptureDate.as_str(), "%Y%m%dT%H%M%S") {
                         Ok(d) => d,
@@ -77,9 +71,9 @@ fn main() {
                         }
                     };
 
-                println!("{} ({:.2} MiB) from {}", info.Filename, file_size_mebibytes, date.format("%d/%m/%Y").to_string());
+                println!("{} ({:.2} MiB) from {}", info.Filename, (info.ObjectCompressedSize as f32) / 1024.0 / 1024.0, date.format("%d/%m/%Y").to_string());
 
-                match save_file(info.Filename, date, &mut cam, handle) {
+                match save_file(info.Filename, date, info.ObjectCompressedSize as u32, &mut cam, handle) {
                     Ok(_) => {}
                     Err(e) => eprintln!("{}", e)
                 }
@@ -96,12 +90,13 @@ fn main() {
 /// - `filename` - the image file name
 /// - `date` - the date the image was created, to store the file in the proper directory
 /// - `cam` - the PTP camera reference
+/// - `image_size_bytes` - the image size in bytes
 /// - `handle` - the object handle
 ///
 /// # Return
 /// `()` or a `libptp::Error`. Using the `ptp` version since it can convert io errors to itself. Should
 /// probably have my own error type that wraps all of them?
-fn save_file(filename: String, date: NaiveDate, cam: &mut Camera<rusb::Context>, handle: u32) -> Result<(), libptp::Error> {
+fn save_file(filename: String, date: NaiveDate, image_size_bytes: u32, cam: &mut Camera<rusb::Context>, handle: u32) -> Result<(), libptp::Error> {
     let path = format!("{}/{}/{}", date.year(), date.month(), date.day());
     let file_and_path = path.clone().add(format!("/{}", filename).as_str());
 
@@ -113,7 +108,14 @@ fn save_file(filename: String, date: NaiveDate, cam: &mut Camera<rusb::Context>,
     // TODO prevent overwrite if photo exists, or use duplicate naming scheme
 
     let mut file = File::create(file_and_path)?;
-    let data = cam.get_object(handle, None)?;
+
+    let mut total_transfered_bytes = 0;
+    let mut data: Vec<u8> = Vec::new();
+    while total_transfered_bytes < image_size_bytes {
+        let mut partial_data = cam.get_partialobject(handle, total_transfered_bytes, MAX_PARTIAL_TRANSFER_BYTES, None)?;
+        data.append(&mut partial_data);
+        total_transfered_bytes += MAX_PARTIAL_TRANSFER_BYTES
+    }
     file.write_all(data.as_slice())?;
     Ok(())
 }
