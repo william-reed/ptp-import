@@ -40,7 +40,6 @@ macro_rules! skip_fail {
 fn main() {
     let context = rusb::Context::new().unwrap();
 
-    // TODO can probably figure out which are PTP devices a more appropriate way
     let cams = context.devices().unwrap()
         .iter()
         .filter_map(|d| libptp::Camera::new(&d).ok())
@@ -62,7 +61,7 @@ fn main() {
                 // skip folders
                 if info.ObjectFormat == FOLDER_OBJECT_FORMAT { continue; }
 
-                let date = skip_fail!(NaiveDate::parse_from_str(info.CaptureDate.as_str(), "%Y%m%dT%H%M%S"), format!("Could not parse date {}", info.CaptureDate));
+                let date = skip_fail!(NaiveDate::parse_from_str(&info.CaptureDate, "%Y%m%dT%H%M%S"), format!("Could not parse date {}", info.CaptureDate));
 
                 println!("{} ({:.2} MiB) from {}", info.Filename, (info.ObjectCompressedSize as f32) / 1024.0 / 1024.0, date.format("%d/%m/%Y").to_string());
 
@@ -91,16 +90,37 @@ fn main() {
 /// probably have my own error type that wraps all of them?
 fn save_file(filename: String, date: NaiveDate, image_size_bytes: u32, cam: &mut Camera<rusb::Context>, handle: u32) -> Result<(), libptp::Error> {
     let path = format!("{}/{}/{}", date.year(), date.month(), date.day());
-    let file_and_path = path.clone().add(format!("/{}", filename).as_str());
+    let mut file_and_path = path.clone().add(&format!("/{}", filename));
 
     // create path if it doesn't exist
-    if !Path::new(path.as_str()).exists() {
+    if !Path::new(&path).exists() {
         fs::create_dir_all(&path)?;
     }
 
-    // TODO prevent overwrite if photo exists, or use duplicate naming scheme
+    // if it does exist, check the image sizes to compare
+    if Path::new(&file_and_path).exists() {
+        let file_len_bytes = fs::metadata(file_and_path)?.len();
+        // TODO can probably use some other information to determine if photo is a possible match
+        //  like looking at capture date
+        if file_len_bytes == image_size_bytes as u64 {
+            println!("\tImage already exists; skipping.");
+            return Ok(());
+        } else {
+            println!("\tImage already exists but doesn't seem to match.");
 
-    let mut file = File::create(file_and_path)?;
+            // find the next available non-duplicate file name
+            let mut ii = 0;
+            loop {
+                ii += 1;
+                file_and_path = path.clone().add(&format!("/{}-{}", filename, ii));
+
+                if !Path::new(&file_and_path).exists() { break; }
+            }
+            println!("\tUsing {} for image.", file_and_path);
+        }
+    }
+
+    let mut file = File::create(&file_and_path)?;
 
     let mut total_transferred_bytes = 0;
     let mut data: Vec<u8> = Vec::new();
